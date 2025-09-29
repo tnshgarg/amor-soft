@@ -396,7 +396,7 @@ export async function generateCompleteSong(params: {
 
   try {
     // Create music using custom mode to bypass character limits
-    const createResponse = await sunoApiCall("/api/v1/suno/create_music", {
+    const createResponse = await sunoApiCall("/api/v1/suno/create", {
       method: "POST",
       body: JSON.stringify({
         task_type: "create_music",

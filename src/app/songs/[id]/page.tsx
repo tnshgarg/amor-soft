@@ -98,7 +98,9 @@ export default function SongDetailPage() {
 
       // If song has audio URL, set up audio element
       if (songData.audio_url && audioRef.current) {
+        console.log("🎵 Setting audio source:", songData.audio_url);
         audioRef.current.src = songData.audio_url;
+        audioRef.current.load(); // Force reload of audio element
       }
     } catch (err) {
       console.error("Error fetching song:", err);
@@ -108,12 +110,48 @@ export default function SongDetailPage() {
     }
   };
 
-  // Load song data on mount
+  // Load song data on mount and set up polling for generating songs
   useEffect(() => {
     if (songId) {
       fetchSong();
     }
   }, [songId]);
+
+  // Polling effect for songs that are still generating
+  useEffect(() => {
+    if (!song) return;
+
+    // Only poll if song is in generating or pending state
+    if (song.status === "generating" || song.status === "pending") {
+      console.log(
+        `🔄 Setting up polling for song ${song.id} (status: ${song.status})`
+      );
+
+      const pollInterval = setInterval(async () => {
+        console.log(`🔄 Polling song ${song.id} status...`);
+        try {
+          const response = await fetch(`/api/songs/${songId}`);
+          if (response.ok) {
+            const updatedSong = await response.json();
+            if (updatedSong.status !== song.status) {
+              console.log(
+                `✅ Song status changed: ${song.status} → ${updatedSong.status}`
+              );
+              await fetchSong(); // Refresh the full song data
+            }
+          }
+        } catch (error) {
+          console.error("Polling error:", error);
+        }
+      }, 10000); // Poll every 10 seconds
+
+      // Clear interval when component unmounts or song status changes
+      return () => {
+        console.log(`🛑 Clearing polling for song ${song.id}`);
+        clearInterval(pollInterval);
+      };
+    }
+  }, [song?.status, song?.id, songId]);
 
   const progressRef = useRef<HTMLDivElement>(null);
 
@@ -147,7 +185,18 @@ export default function SongDetailPage() {
   // Audio player controls
   const togglePlayPause = async () => {
     const audio = audioRef.current;
+
+    console.log("🎵 togglePlayPause called", {
+      hasAudio: !!audio,
+      hasAudioUrl: !!song?.audio_url,
+      audioUrl: song?.audio_url,
+      songStatus: song?.status,
+      audioReadyState: audio?.readyState,
+      audioNetworkState: audio?.networkState,
+    });
+
     if (!audio || !song?.audio_url) {
+      console.log("❌ No audio or audio URL available");
       toast({
         title: "No Audio Available",
         description:
@@ -159,13 +208,44 @@ export default function SongDetailPage() {
       return;
     }
 
+    // Check if audio URL is valid (not a mock URL)
+    if (
+      song.audio_url.includes("mock-audio-url") ||
+      song.audio_url.includes("example.com")
+    ) {
+      console.log("⚠️ Mock audio URL detected");
+      toast({
+        title: "Demo Audio",
+        description:
+          "This is a demo song. Real audio generation is in progress.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       if (isPlaying) {
+        console.log("⏸️ Pausing audio");
         audio.pause();
         setIsPlaying(false);
       } else {
+        console.log("▶️ Attempting to play audio");
+        console.log("Audio ready state:", audio.readyState);
+        console.log("Audio network state:", audio.networkState);
+
+        // Simple audio loading - let the browser handle it
+        console.log("🔄 Ensuring audio is loaded...");
+        if (audio.src !== song.audio_url) {
+          audio.src = song.audio_url;
+          audio.load();
+        }
+
+        console.log("🎵 Attempting to play audio...");
+
+        // Simple play attempt
         await audio.play();
         setIsPlaying(true);
+        console.log("✅ Audio playing successfully");
 
         // Increment play count
         fetch(`/api/songs/${songId}`, {
@@ -175,12 +255,20 @@ export default function SongDetailPage() {
         }).catch(console.error);
       }
     } catch (error) {
-      console.error("Error playing audio:", error);
+      console.error("❌ Error playing audio:", error);
+
+      // Simple, user-friendly error message
+      const errorMessage =
+        error instanceof Error && error.message.includes("play()")
+          ? "Audio playback was interrupted. Please try clicking play again."
+          : "Unable to play audio. Please check your internet connection and try again.";
+
       toast({
         title: "Playback Error",
-        description: "Failed to play audio. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
+      setIsPlaying(false);
     }
   };
 
@@ -410,10 +498,40 @@ export default function SongDetailPage() {
       <audio
         ref={audioRef}
         preload="metadata"
+        controls={false}
         onLoadedMetadata={() => {
           if (audioRef.current) {
             setDuration(audioRef.current.duration);
+            console.log(
+              "✅ Audio metadata loaded, duration:",
+              audioRef.current.duration
+            );
           }
+        }}
+        onCanPlay={() => {
+          console.log("✅ Audio can play");
+        }}
+        onError={(e) => {
+          console.error("❌ Audio error:", e);
+          const audio = e.target as HTMLAudioElement;
+          console.error("Audio error details:", {
+            error: audio.error,
+            networkState: audio.networkState,
+            readyState: audio.readyState,
+            src: audio.src,
+          });
+          toast({
+            title: "Audio Error",
+            description:
+              "Failed to load audio file. The file may be corrupted or unavailable.",
+            variant: "destructive",
+          });
+        }}
+        onLoadStart={() => {
+          console.log("🔄 Audio load started");
+        }}
+        onLoadedData={() => {
+          console.log("✅ Audio data loaded");
         }}
       />
 
@@ -455,7 +573,6 @@ export default function SongDetailPage() {
               <div className="flex flex-wrap justify-center lg:justify-start gap-2 mb-4">
                 {song.genre && <Badge variant="secondary">{song.genre}</Badge>}
                 {song.mood && <Badge variant="outline">{song.mood}</Badge>}
-                {song.theme && <Badge variant="outline">{song.theme}</Badge>}
                 <Badge
                   variant={
                     song.status === "completed" ? "default" : "secondary"
@@ -464,7 +581,74 @@ export default function SongDetailPage() {
                   {song.status}
                 </Badge>
               </div>
+
+              {/* Theme Description */}
+              {song.theme && (
+                <div className="bg-secondary/20 rounded-lg p-4 mb-4">
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">
+                    Song Theme
+                  </h3>
+                  <p className="text-sm leading-relaxed">{song.theme}</p>
+                </div>
+              )}
             </div>
+
+            {/* Live Status Indicator */}
+            {(song.status === "generating" || song.status === "pending") && (
+              <Card className="border-orange-200 bg-white dark:bg-orange-950/20">
+                <CardContent className="p-4 bg-white">
+                  <div className="flex items-center gap-3 ">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 bg-white rounded-full animate-pulse"></div>
+                      <span className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                        {song.status === "generating"
+                          ? "Generating Song..."
+                          : "Queued for Generation"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-orange-600 dark:text-orange-400">
+                      This may take 2-3 minutes
+                    </div>
+                  </div>
+                  {song.task_id && (
+                    <div className="mt-2 text-xs text-orange-600 dark:text-orange-400">
+                      Task ID: {song.task_id.substring(0, 20)}...
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {song.status === "completed" && song.audio_url && (
+              <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 bg-green-500 rounded-full"></div>
+                    <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                      Song Ready to Play
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {song.status === "failed" && (
+              <Card className="border-red-200 bg-red-50 dark:bg-red-950/20">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 bg-red-500 rounded-full"></div>
+                    <span className="text-sm font-medium text-red-700 dark:text-red-300">
+                      Generation Failed
+                    </span>
+                  </div>
+                  {song.error_message && (
+                    <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                      {song.error_message}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Audio Player */}
             <Card>
