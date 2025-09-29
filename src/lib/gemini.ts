@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export const geminiModel = genAI.getGenerativeModel({
-  model: "gemini-2.0-flash-exp",
+  model: "gemini-2.5-pro",
 });
 
 export async function generateEmbedding(text: string): Promise<number[]> {
@@ -22,7 +22,7 @@ export async function optimizeLyricsPrompt(
   styleTags: string[],
   similarLyrics: string[]
 ): Promise<string> {
-  const prompt = `You are a professional Hindi lyricist. Create ONLY Hindi song lyrics based on the user's request.
+  const prompt = `You are a professional Hindi lyricist. Write ORIGINAL, modern Bollywood-style Hindi song lyrics based on the user's request.
 
 USER REQUEST: "${userPrompt}"
 STYLE: ${styleTags.join(", ")}
@@ -34,39 +34,42 @@ ${similarLyrics
   .map((lyrics, i) => `${i + 1}. ${lyrics.substring(0, 200)}...`)
   .join("\n\n")}
 
-Use these as inspiration for style and emotion, but create completely original lyrics.`
+Use these only for emotion, vibe, and flow. Do NOT copy rare, complex, or niche words; replace them with simple, melodic Hindi or minor English words.`
     : ""
 }
 
 STRICT REQUIREMENTS:
-- Output ONLY Hindi lyrics, nothing else
-- No explanations, translations, or commentary
-- No English words except in [Section] labels
-- Use proper song structure: [Verse], [Chorus], [Bridge], [Outro]
-- Make it authentic Bollywood style
-- Keep verses 4-6 lines, chorus 4 lines
-- Use simple, beautiful Hindi words that rhyme well
+- Output ONLY Hindi song lyrics (Hinglish words allowed sparingly for natural modern feel)
+- Avoid very heavy, old-fashioned, or niche Hindi words and cultural references
+- Avoid slang, internet memes, or uncommon English words that are hard to pronounce
+- Lyrics must be easy to sing with smooth, melodic flow
+- Short to medium-length phrases; natural rhythm for modern Bollywood songs
+- Modern, youthful, romantic Hindi with memorable rhymes and emotional impact
+- Minor English words (like "love", "baby", "forever") are okay, max 1–2 per line
+- Song structure: [Verse], [Chorus], [Verse 2], [Chorus], [Bridge], [Outro]
+- Verses: 4–6 lines, Chorus: 4 lines
+- Maintain emotional depth and connection, with hooks that feel natural in singing
 
 OUTPUT FORMAT:
 [Verse]
-Hindi lyrics here...
+Lyrics here...
 
 [Chorus]
-Hindi lyrics here...
+Lyrics here...
 
 [Verse 2]
-Hindi lyrics here...
+Lyrics here...
 
 [Chorus]
-Hindi lyrics here...
+Lyrics here...
 
 [Bridge]
-Hindi lyrics here...
+Lyrics here...
 
 [Outro]
-Hindi lyrics here...
+Lyrics here...
 
-Generate the Hindi lyrics now:`;
+Generate the modern Hindi lyrics now:`;
 
   try {
     const result = await geminiModel.generateContent(prompt);
@@ -123,22 +126,4 @@ function cleanLyricsResponse(lyrics: string): string {
   }
 
   return cleaned.trim();
-}
-
-export async function translateToHindi(englishText: string): Promise<string> {
-  const prompt = `
-Translate the following text to Hindi, maintaining the poetic and musical quality:
-
-"${englishText}"
-
-Provide only the Hindi translation:
-`;
-
-  try {
-    const result = await geminiModel.generateContent(prompt);
-    return result.response.text();
-  } catch (error) {
-    console.error("Error translating to Hindi:", error);
-    throw error;
-  }
 }
